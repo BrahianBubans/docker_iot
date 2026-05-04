@@ -3,6 +3,16 @@ import aiomqtt
 
 logging.basicConfig(format='%(asctime)s - cliente mqtt - %(levelname)s:%(message)s', level=logging.INFO, datefmt='%d/%m/%Y %H:%M:%S %z')
 
+#Topico  de prueba 1
+async def manejo_prueba1(messages):
+    async for message in client.messages:
+            logging.info(str(message.topic) + ": " + message.payload.decode("utf-8"))
+
+#Topico de prueba 2
+async def manejo_prueba2(messages):
+   async for message in client.messages:
+            logging.info(str(message.topic) + ": " + message.payload.decode("utf-8"))
+
 async def main():
     tls_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     tls_context.verify_mode = ssl.CERT_REQUIRED
@@ -14,9 +24,15 @@ async def main():
         port=8883,
         tls_context=tls_context,
     ) as client:
-        await client.subscribe(os.environ['TOPICO'])
-        async for message in client.messages:
-            logging.info(str(message.topic) + ": " + message.payload.decode("utf-8"))
+        topico1 = "prueba/uno"
+        topico2 = "prueba/dos"
+
+        await client.subscribe(topico1)
+        await client.subscribe(topico2)
+
+        async with asyncio.TaskGroup() as grupo:
+            grupo.create_task(manejo_prueba1(client.messages.filtered(topico1)))
+            grupo.create_task(manejo_prueba2(client.messages.filtered(topico2)))
 
 if __name__ == "__main__":
     asyncio.run(main())
