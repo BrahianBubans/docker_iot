@@ -54,4 +54,7 @@ async def main():
             grupo.create_task(manejo_publicacion(client,d_contador),name="ManejoPublicacion")
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+     asyncio.run(main())
+    except KeyboardInterrupt:
+        logging.info("interrupcion por teclado")
