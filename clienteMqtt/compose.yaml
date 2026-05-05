@@ -1,0 +1,14 @@
+services:
+  clientemqtt:
+    build: .
+    image: clientemqtt
+    container_name: clientemqtt
+    env_file:
+      - .env
+    environment:
+      - TZ=America/Argentina/Buenos_Aires 
+      - SERVIDOR=${SERVIDOR} 
+      - TOPICO_1=${TOPICO_1}
+      - TOPICO_2=${TOPICO_2}
+      - TOPICO_3=${TOPICO_3}
+    restart: unless-stopped
