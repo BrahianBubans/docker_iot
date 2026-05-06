@@ -20,6 +20,8 @@ async def manejo_contador(dicc_referencia):
         dicc_referencia["contador"] += 1
         logging.info(f"Contador incrementado: {dicc_referencia['contador']}")
 
+
+#Topico 3 publicacion del contador
 async def manejo_publicacion(client, dicc_referencia):
     topico_c=os.environ['TOPICO_3']
     while True:
@@ -28,14 +30,14 @@ async def manejo_publicacion(client, dicc_referencia):
         await client.publish(topico_c, payload=str(valor).encode("utf-8"))
         logging.info(f"MQTT publicado en {topico_c}: {valor}")
 
-async def dispatcher(client, t1, t2):
+#Para manejar los mensajes entrantes y dirigirlos a la funcion correspondiente
+async def manejo_mensajes(client, t1, t2):
     async for message in client.messages:
         payload = message.payload.decode("utf-8")
         if message.topic.matches(t1):
             asyncio.create_task(manejo_prueba1(payload), name="Topico1")
         elif message.topic.matches(t2):
             asyncio.create_task(manejo_prueba2(payload), name="Topico2")
-
 
 async def main():
 
@@ -60,7 +62,7 @@ async def main():
 
         async with asyncio.TaskGroup() as grupo:
             
-            grupo.create_task(dispatcher(client, topico1, topico2), name="Dispatcher")
+            grupo.create_task(manejo_mensajes(client, topico1, topico2), name="ManejoMensajes")
             grupo.create_task(manejo_contador(d_contador), name="ManejoContador")
             grupo.create_task(manejo_publicacion(client, d_contador), name="ManejoPublicacion")
 
