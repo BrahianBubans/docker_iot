@@ -1,8 +1,9 @@
 from telegram import Update, ReplyKeyboardMarkup
-from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
+from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters,CallbackContext
 import logging, os, asyncio, aiomysql, traceback, locale
 import matplotlib.pyplot as plt
 from io import BytesIO
+import re
 
 #De acuerdo a los ingresos del usuario, publíca vía mqtts las órdenes para el 
 #termostato: setpoint, periodo, destello, modo y relé.
@@ -115,13 +116,12 @@ def main():
     application.add_handler(CommandHandler('start', start))
     application.add_handler(CommandHandler('acercade', acercade))
  #  application.add_handler(CommandHandler('kill', kill))
-    application.add_handler(MessageHandler(filters.Regex("^(temperatura|humedad)$"), medicion))
-    application.add_handler(MessageHandler(filters.Regex("^(gráfico temperatura|gráfico humedad)$"), graficos))
-    application.add_handler(MessageHandler(filters.Regex("^(MODO AUTOMATICO)$"), automatico))
-    application.add_handler(MessageHandler(filters.Regex("^(MODO MANUAL)$"), manual))
-    application.add_handler(MessageHandler(filters.Regex("^(DESTELLO)$"), destello))
-    application.add_handler(MessageHandler(filters.Regex("^(RELE)$"), rele))
-
+ #  application.add_handler(MessageHandler(filters.Regex("^(temperatura|humedad)$"), medicion))
+#   application.add_handler(MessageHandler(filters.Regex("^(gráfico temperatura|gráfico humedad)$"), graficos))
+    application.add_handler(MessageHandler(filters.Regex(re.compile("^(MODO AUTOMATICO|AUTO|AUTOMATICO)$", re.IGNORECASE)), automatico))
+    application.add_handler(MessageHandler(filters.Regex(re.compile("^(MODO MANUAL|MANUAL)$", re.IGNORECASE)), manual))
+    application.add_handler(MessageHandler(filters.Regex(re.compile("^(DESTELLO)$", re.IGNORECASE)), destello))
+    application.add_handler(MessageHandler(filters.Regex(re.compile("^(RELE)$", re.IGNORECASE)), rele))
     application.run_polling()
 
 if __name__ == '__main__':
