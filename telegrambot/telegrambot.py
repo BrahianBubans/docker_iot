@@ -4,6 +4,12 @@ import logging, os, asyncio, aiomysql, traceback, locale
 import matplotlib.pyplot as plt
 from io import BytesIO
 
+#De acuerdo a los ingresos del usuario, publíca vía mqtts las órdenes para el 
+#termostato: setpoint, periodo, destello, modo y relé.
+
+#MODO NORMAL MODO AUTOMATICO, DESTELLO, RELE APAGADO, RELE PRENDIDO,
+#PERIODO DEBE INGRESAR EL VALOR, SETPOINT DEBE INGRESAR EL VALOR
+
 token=os.environ["TB_TOKEN"]
 
 logging.basicConfig(format='%(asctime)s - TelegramBot - %(levelname)s - %(message)s', level=logging.INFO)
@@ -19,12 +25,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         apellido=update.message.from_user.last_name
     else:
         apellido=""
-    kb = [["temperatura"],["humedad"],["gráfico temperatura"],["gráfico humedad"]]
+    kb = [["MODO AUTOMATICO"],["MODO MANUAL"],["DESTELLO"],["RELE"]]
     await context.bot.send_message(update.message.chat.id, text="Bienvenido al Bot "+ nombre + " " + apellido,reply_markup=ReplyKeyboardMarkup(kb))
 
 async def acercade(update: Update, context):
     await context.bot.send_message(update.message.chat.id, text="Este bot fue creado para el curso de IoT FIO")
-
+'''
 async def kill(update: Update, context):
     logging.info(context.args)
     if context.args and context.args[0] == '@e':
@@ -33,7 +39,7 @@ async def kill(update: Update, context):
         await context.bot.send_message(update.message.chat.id, text="¡¡¡Ahora estan todos muertos!!!")
     else:
         await context.bot.send_message(update.message.chat.id, text="☠️ ¡¡¡Esto es muy peligroso!!! ☠️")
-        
+'''
 async def medicion(update: Update, context):
     logging.info(update.message.text)
     sql = f"SELECT timestamp, {update.message.text} FROM mediciones ORDER BY timestamp DESC LIMIT 1"
@@ -91,13 +97,31 @@ async def graficos(update: Update, context):
         buffer.close()
     conn.close()
 
+async def automatico(update: Update, context):
+    await context.bot.send_message(update.message.chat.id, text="Modo automático activado. El sistema ajustará el setpoint y el periodo según las condiciones actuales.")
+
+async def manual(update: Update, context):  
+    await context.bot.send_message(update.message.chat.id, text="Modo manual activado. El sistema operará con los parámetros establecidos por el usuario.")
+
+async def destello(update: Update, context):
+    await context.bot.send_message(update.message.chat.id, text="Destello activado. El sistema realizará un destello para indicar una acción específica.")
+
+async def rele(update: Update, context):
+    await context.bot.send_message(update.message.chat.id, text="Relé activado. El sistema encenderá o apagará el relé según la configuración actual.")
+
+
 def main():
     application = Application.builder().token(token).build()
     application.add_handler(CommandHandler('start', start))
     application.add_handler(CommandHandler('acercade', acercade))
-    application.add_handler(CommandHandler('kill', kill))
+ #  application.add_handler(CommandHandler('kill', kill))
     application.add_handler(MessageHandler(filters.Regex("^(temperatura|humedad)$"), medicion))
     application.add_handler(MessageHandler(filters.Regex("^(gráfico temperatura|gráfico humedad)$"), graficos))
+    application.add_handler(MessageHandler(filters.Regex("^(MODO AUTOMATICO)$"), automatico))
+    application.add_handler(MessageHandler(filters.Regex("^(MODO MANUAL)$"), manual))
+    application.add_handler(MessageHandler(filters.Regex("^(DESTELLO)$"), destello))
+    application.add_handler(MessageHandler(filters.Regex("^(RELE)$"), rele))
+
     application.run_polling()
 
 if __name__ == '__main__':
