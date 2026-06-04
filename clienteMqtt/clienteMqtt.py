@@ -1,47 +1,48 @@
-import asyncio, ssl, certifi, logging, os, aiomysql, json, traceback
+import asyncio
+import ssl
+import logging
+import os
 import aiomqtt
 
-logging.basicConfig(format='%(asctime)s - cliente mqtt - %(levelname)s:%(message)s', level=logging.INFO, datefmt='%d/%m/%Y %H:%M:%S %z')
+logging.basicConfig(format='%(asctime)s - ClienteMQTT - %(levelname)s - %(message)s', level=logging.INFO)
+
+ID_DISPOSITIVO = os.environ.get("PICO_DEVICE_ID", "TU_ID_DE_LA_PICO_AQUI")
 
 async def main():
-
     tls_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     tls_context.verify_mode = ssl.CERT_REQUIRED
     tls_context.check_hostname = True
     tls_context.load_default_certs()
 
-    async with aiomqtt.Client(
-        os.environ["SERVIDOR"],
-        username=os.environ["MQTT_USR"],
-        password=os.environ["MQTT_PASS"],
-        port=int(os.environ["PUERTO_MQTTS"]),
-        tls_context=tls_context,
-    ) as client:
-        await client.subscribe(os.environ['TOPICO'])
-        async for message in client.messages:
-            logging.info(str(message.topic) + ": " + message.payload.decode("utf-8"))
-            dispositivo=str(message.topic).split('/')[-1]
-            datos=json.loads(message.payload.decode('utf8'))
-            sql = "INSERT INTO `mediciones` (`sensor_id`, `temperatura`, `humedad`) VALUES (%s, %s, %s)"
-            try:
-                conn = await aiomysql.connect(host=os.environ["MARIADB_SERVER"], port=3306,
-                                            user=os.environ["MARIADB_USER"],
-                                            password=os.environ["MARIADB_USER_PASS"],
-                                            db=os.environ["MARIADB_DB"])
-            except Exception as e:
-                logging.error(traceback.format_exc())
-
-            cur = await conn.cursor()
-
-            async with conn.cursor() as cur:
-                try:
-                    await cur.execute(sql, (dispositivo, datos['temperatura'], datos['humedad']))
-                    await conn.commit()
-                    await cur.close()
-                    await conn.ensure_closed()
-                except Exception as e:
-                    logging.error(traceback.format_exc())
-                    # Logs the error appropriately. 
+    while True:
+        try:
+            logging.info("Conectando al Broker MQTTS...")
+            async with aiomqtt.Client(
+                hostname=os.environ["SERVIDOR"],
+                port=int(os.environ["PUERTO_MQTTS"]),
+                username=os.environ["MQTT_USR"],
+                password=os.environ["MQTT_PASS"],
+                tls_context=tls_context,
+                timeout=10
+            ) as client:
+                
+                topico_escucha = f"{ID_DISPOSITIVO}/+"
+                await client.subscribe(topico_escucha)
+                logging.info(f"Suscrito a: {topico_escucha}")
+                
+                # Procesamiento seguro de mensajes
+                async with client.messages() as messages:
+                    async for message in messages:
+                        topico = str(message.topic)
+                        payload = message.payload.decode("utf-8")
+                        print(f"[BROKER] {topico} -> {payload}")
+                        
+        except aiomqtt.MqttError as e:
+            logging.error(f"Error de conexión o pérdida de enlace: {e}. Reintentando en 5 segundos...")
+            await asyncio.sleep(5)
+        except Exception as general_error:
+            logging.critical(f"Falla inesperada: {general_error}")
+            await asyncio.sleep(5)
 
 if __name__ == "__main__":
     asyncio.run(main())

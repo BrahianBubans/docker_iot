@@ -4,7 +4,8 @@ import logging, os, asyncio, aiomysql, traceback, locale
 import matplotlib.pyplot as plt
 from io import BytesIO
 import re
-
+import aiomqtt
+import ssl
 #De acuerdo a los ingresos del usuario, publíca vía mqtts las órdenes para el 
 #termostato: setpoint, periodo, destello, modo y relé.
 
@@ -12,6 +13,15 @@ import re
 #PERIODO DEBE INGRESAR EL VALOR, SETPOINT DEBE INGRESAR EL VALOR
 
 token=os.environ["TB_TOKEN"]
+
+#ID de la RasperriPi Pico
+ID_DISPOSITIVO = os.environ.get("PICO_DEVICE_ID", "TU_ID_DE_LA_PICO_AQUI")
+
+#BROKER MQTTS
+MQTT_BROKER = os.environ["SERVIDOR"]
+MQTT_PORT = int(os.environ["PUERTO_MQTTS"])
+MQTT_USER = os.environ["MQTT_USR"]
+MQTT_PASS = os.environ["MQTT_PASS"]
 
 logging.basicConfig(format='%(asctime)s - TelegramBot - %(levelname)s - %(message)s', level=logging.INFO)
 logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -40,7 +50,7 @@ async def kill(update: Update, context):
         await context.bot.send_message(update.message.chat.id, text="¡¡¡Ahora estan todos muertos!!!")
     else:
         await context.bot.send_message(update.message.chat.id, text="☠️ ¡¡¡Esto es muy peligroso!!! ☠️")
-'''
+
 async def medicion(update: Update, context):
     logging.info(update.message.text)
     sql = f"SELECT timestamp, {update.message.text} FROM mediciones ORDER BY timestamp DESC LIMIT 1"
@@ -97,6 +107,32 @@ async def graficos(update: Update, context):
         await context.bot.send_photo(chat_id=update.effective_chat.id, photo=buffer)
         buffer.close()
     conn.close()
+'''
+
+async def enviar_comando_mqtt(subtopico, payload):
+    #Abrir, publicar y cerrar la conexión MQTT 
+    tls_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    tls_context.verify_mode = ssl.CERT_REQUIRED
+    tls_context.check_hostname = True
+    tls_context.load_default_certs()
+    
+    try:
+        async with aiomqtt.Client(
+            hostname=MQTT_BROKER,
+            port=MQTT_PORT,
+            username=MQTT_USER,
+            password=MQTT_PASS,
+            tls_context=tls_context,
+            timeout=5
+        ) as client:
+            topico_completo = f"{ID_DISPOSITIVO}/{subtopico}"
+            await client.publish(topico_completo, payload=payload, qos=1)
+            logging.info(f"MQTT Publicado con éxito: {topico_completo} -> {payload}")
+            return True
+    except aiomqtt.MqttError as e:
+        logging.error(f"Error de conexión o publicación en Broker MQTT: {e}")
+        return False
+
 
 async def automatico(update: Update, context):
     await context.bot.send_message(update.message.chat.id, text="Modo automático activado. El sistema ajustará el setpoint y el periodo según las condiciones actuales.")
@@ -105,7 +141,11 @@ async def manual(update: Update, context):
     await context.bot.send_message(update.message.chat.id, text="Modo manual activado. El sistema operará con los parámetros establecidos por el usuario.")
 
 async def destello(update: Update, context):
-    await context.bot.send_message(update.message.chat.id, text="Destello activado. El sistema realizará un destello para indicar una acción específica.")
+    exito = await enviar_comando_mqtt("destello", "1")
+    if exito:
+        await context.bot.send_message(update.message.chat.id, text="Comando de destello enviado de forma exitosa.")
+    else:
+        await context.bot.send_message(update.message.chat.id, text="Error al enviar la señal al servidor MQTT.")
 
 async def rele(update: Update, context):
     await context.bot.send_message(update.message.chat.id, text="Relé activado. El sistema encenderá o apagará el relé según la configuración actual.")
@@ -115,9 +155,6 @@ def main():
     application = Application.builder().token(token).build()
     application.add_handler(CommandHandler('start', start))
     application.add_handler(CommandHandler('acercade', acercade))
- #  application.add_handler(CommandHandler('kill', kill))
- #  application.add_handler(MessageHandler(filters.Regex("^(temperatura|humedad)$"), medicion))
-#   application.add_handler(MessageHandler(filters.Regex("^(gráfico temperatura|gráfico humedad)$"), graficos))
     application.add_handler(MessageHandler(filters.Regex(re.compile("^(MODO AUTOMATICO|AUTO|AUTOMATICO)$", re.IGNORECASE)), automatico))
     application.add_handler(MessageHandler(filters.Regex(re.compile("^(MODO MANUAL|MANUAL)$", re.IGNORECASE)), manual))
     application.add_handler(MessageHandler(filters.Regex(re.compile("^(DESTELLO)$", re.IGNORECASE)), destello))
