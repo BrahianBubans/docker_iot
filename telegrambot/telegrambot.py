@@ -1,23 +1,10 @@
 from telegram import Update, ReplyKeyboardMarkup
-from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters,CallbackContext
-import logging, os, asyncio, aiomysql, traceback, locale
-import matplotlib.pyplot as plt
-from io import BytesIO
-import re
+from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
+import logging, os, asyncio, re, json, ssl
 import aiomqtt
-import ssl
-#De acuerdo a los ingresos del usuario, publíca vía mqtts las órdenes para el 
-#termostato: setpoint, periodo, destello, modo y relé.
 
-#MODO NORMAL MODO AUTOMATICO, DESTELLO, RELE APAGADO, RELE PRENDIDO,
-#PERIODO DEBE INGRESAR EL VALOR, SETPOINT DEBE INGRESAR EL VALOR
-
-token=os.environ["TB_TOKEN"]
-
-#ID de la RasperriPi Pico
-ID_DISPOSITIVO = os.environ.get("PICO_DEVICE_ID", "TU_ID_DE_LA_PICO_AQUI")
-
-#BROKER MQTTS
+token = os.environ["TB_TOKEN"]
+ID_DISPOSITIVO = os.environ["PICO_DEVICE_ID"]
 MQTT_BROKER = os.environ["SERVIDOR"]
 MQTT_PORT = int(os.environ["PUERTO_MQTTS"])
 MQTT_USER = os.environ["MQTT_USR"]
@@ -26,91 +13,24 @@ MQTT_PASS = os.environ["MQTT_PASS"]
 logging.basicConfig(format='%(asctime)s - TelegramBot - %(levelname)s - %(message)s', level=logging.INFO)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logging.info("se conectó: " + str(update.message.from_user.id))
-    if update.message.from_user.first_name:
-        nombre=update.message.from_user.first_name
-    else:
-        nombre=""
-    if update.message.from_user.last_name:
-        apellido=update.message.from_user.last_name
-    else:
-        apellido=""
-    kb = [["MODO AUTOMATICO"],["MODO MANUAL"],["DESTELLO"],["RELE"]]
-    await context.bot.send_message(update.message.chat.id, text="Bienvenido al Bot "+ nombre + " " + apellido,reply_markup=ReplyKeyboardMarkup(kb))
+    nombre = update.message.from_user.first_name if update.message.from_user.first_name else ""
+    apellido = update.message.from_user.last_name if update.message.from_user.last_name else ""
+    kb = [["MODO AUTOMATICO"], ["MODO MANUAL"], ["DESTELLO"], ["RELE"]]
+    await context.bot.send_message(update.message.chat.id, text="Bienvenido al Bot " + nombre + " " + apellido, reply_markup=ReplyKeyboardMarkup(kb))
 
 async def acercade(update: Update, context):
     await context.bot.send_message(update.message.chat.id, text="Este bot fue creado para el curso de IoT FIO")
-'''
-async def kill(update: Update, context):
-    logging.info(context.args)
-    if context.args and context.args[0] == '@e':
-        await context.bot.send_animation(update.message.chat.id, "CgACAgEAAxkBAAICI2oYKdAqh4YkBCLifiVJZlRXy74-AAKUBwACZ_PBRLgV_qZf-9kGOwQ")
-        await asyncio.sleep(6)
-        await context.bot.send_message(update.message.chat.id, text="¡¡¡Ahora estan todos muertos!!!")
-    else:
-        await context.bot.send_message(update.message.chat.id, text="☠️ ¡¡¡Esto es muy peligroso!!! ☠️")
 
-async def medicion(update: Update, context):
-    logging.info(update.message.text)
-    sql = f"SELECT timestamp, {update.message.text} FROM mediciones ORDER BY timestamp DESC LIMIT 1"
-    conn = await aiomysql.connect(host=os.environ["MARIADB_SERVER"], port=3306,
-                                    user=os.environ["MARIADB_USER"],
-                                    password=os.environ["MARIADB_USER_PASS"],
-                                    db=os.environ["MARIADB_DB"])
-    async with conn.cursor() as cur:
-        await cur.execute(sql)
-        r = await cur.fetchone()
-        if update.message.text == 'temperatura':
-            unidad = 'ºC'
-        else:
-            unidad = '%'
-        await context.bot.send_message(update.message.chat.id,
-                                    text="La última {} es de {} {},\nregistrada a las {:%H:%M:%S %d/%m/%Y}"
-                                    .format(update.message.text, str(r[1]).replace('.',','), unidad, r[0]))
-        logging.info("La última {} es de {} {}, medida a las {:%H:%M:%S %d/%m/%Y}".format(update.message.text, r[1], unidad, r[0]))
-    conn.close()
+async def automatico(update: Update, context):
+    await context.bot.send_message(update.message.chat.id, text="Modo automático activado. El sistema ajustará el setpoint y el periodo según las condiciones actuales.")
 
-async def graficos(update: Update, context):
-    logging.info(update.message.text)
-    sql = f"""SELECT timestamp, {update.message.text.split()[1]}
-            FROM (
-                SELECT timestamp, {update.message.text.split()[1]},
-                    ROW_NUMBER() OVER (ORDER BY id) AS rn
-                FROM mediciones
-                WHERE timestamp >= NOW() - INTERVAL 1 DAY
-                AND sensor_id LIKE 'sensor_1'
-            ) AS t
-            WHERE rn % 2 = 0
-            ORDER BY timestamp;"""
-    conn = await aiomysql.connect(host=os.environ["MARIADB_SERVER"], port=3306,
-                                    user=os.environ["MARIADB_USER"],
-                                    password=os.environ["MARIADB_USER_PASS"],
-                                    db=os.environ["MARIADB_DB"])
-    async with conn.cursor() as cur:
-        await cur.execute(sql)
-        filas = await cur.fetchall()
+async def manual(update: Update, context):  
+    await context.bot.send_message(update.message.chat.id, text="Modo manual activado. El sistema operará con los parámetros establecidos por el usuario.")
 
-        fig, ax = plt.subplots(figsize=(7, 4))
-        fecha,var=zip(*filas)
-        ax.plot(fecha,var)
-        ax.grid(True, which='both')
-        ax.set_title(update.message.text, fontsize=14, verticalalignment='bottom')
-        ax.set_xlabel('fecha')
-        ax.set_ylabel('unidad')
-
-        buffer = BytesIO()
-        fig.tight_layout()
-        fig.savefig(buffer, format='png')
-        plt.close()
-        buffer.seek(0)
-        await context.bot.send_photo(chat_id=update.effective_chat.id, photo=buffer)
-        buffer.close()
-    conn.close()
-'''
-
-async def enviar_comando_mqtt(subtopico, payload):
-    #Abrir, publicar y cerrar la conexión MQTT 
+async def enviar_comando_mqtt(topico, payload):
     tls_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     tls_context.verify_mode = ssl.CERT_REQUIRED
     tls_context.check_hostname = True
@@ -125,34 +45,42 @@ async def enviar_comando_mqtt(subtopico, payload):
             tls_context=tls_context,
             timeout=5
         ) as client:
-            topico_completo = f"{ID_DISPOSITIVO}/{subtopico}"
-            await client.publish(topico_completo, payload=payload, qos=1)
-            logging.info(f"MQTT Publicado con éxito: {topico_completo} -> {payload}")
+            await client.publish(topico, payload=payload, qos=1)
+            logging.info(f"MQTT Publicado: {topico} -> {payload}")
             return True
     except aiomqtt.MqttError as e:
-        logging.error(f"Error de conexión o publicación en Broker MQTT: {e}")
+        logging.error(f"Error de conexión o publicación MQTT: {e}")
         return False
 
-
-async def automatico(update: Update, context):
-    await context.bot.send_message(update.message.chat.id, text="Modo automático activado. El sistema ajustará el setpoint y el periodo según las condiciones actuales.")
-
-async def manual(update: Update, context):  
-    await context.bot.send_message(update.message.chat.id, text="Modo manual activado. El sistema operará con los parámetros establecidos por el usuario.")
-
 async def destello(update: Update, context):
-    exito = await enviar_comando_mqtt("destello", "1")
+    topico_destello = f"{ID_DISPOSITIVO}/destello"
+    exito = await enviar_comando_mqtt(topico_destello, "1")
+    
     if exito:
-        await context.bot.send_message(update.message.chat.id, text="Comando de destello enviado de forma exitosa.")
+        await context.bot.send_message(update.message.chat.id, text="Comando DESTELLO transmitido por MQTT.")
     else:
-        await context.bot.send_message(update.message.chat.id, text="Error al enviar la señal al servidor MQTT.")
+        await context.bot.send_message(update.message.chat.id, text="Fallo de transmisión al broker MQTT.")
 
 async def rele(update: Update, context):
-    await context.bot.send_message(update.message.chat.id, text="Relé activado. El sistema encenderá o apagará el relé según la configuración actual.")
-
+    topico_rele = f"{ID_DISPOSITIVO}/rele"
+    # El payload debe ser "0" (encendido) o "1" (apagado) para ser convertido a entero en la placa.
+    exito = await enviar_comando_mqtt(topico_rele, "0")
+    
+    if exito:
+        await context.bot.send_message(update.message.chat.id, text="Comando RELE transmitido por MQTT.")
+    else:
+        await context.bot.send_message(update.message.chat.id, text="Fallo de transmisión al broker MQTT.")
 
 def main():
-    application = Application.builder().token(token).build()
+    application = (
+        Application.builder()
+        .token(token)
+        .connect_timeout(30.0)
+        .read_timeout(30.0)
+        .write_timeout(30.0)
+        .pool_timeout(30.0)
+        .build()
+    )
     application.add_handler(CommandHandler('start', start))
     application.add_handler(CommandHandler('acercade', acercade))
     application.add_handler(MessageHandler(filters.Regex(re.compile("^(MODO AUTOMATICO|AUTO|AUTOMATICO)$", re.IGNORECASE)), automatico))
