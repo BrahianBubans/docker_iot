@@ -94,7 +94,7 @@ async def pedir_setpoint(update: Update, context):
         return
 
     estado_sistema["esperando_input"] = "setpoint"
-    await context.bot.send_message(update.message.chat.id, text="Ingrese el valor de temperatura para el SETPOINT (formato numérico):")
+    await context.bot.send_message(update.message.chat.id, text="Ingrese el valor de temperatura para el SETPOINT (entero):")
 
 async def pedir_periodo(update: Update, context):
     if estado_sistema["modo"] != "manual":
@@ -102,7 +102,7 @@ async def pedir_periodo(update: Update, context):
         return
 
     estado_sistema["esperando_input"] = "periodo"
-    await context.bot.send_message(update.message.chat.id, text="Ingrese el valor en segundos para el PERIODO (formato numérico):")
+    await context.bot.send_message(update.message.chat.id, text="Ingrese el valor en segundos para el PERIODO (entero):")
 
 async def procesar_entrada_texto(update: Update, context):
     esperando = estado_sistema["esperando_input"]
@@ -147,17 +147,17 @@ async def mqtt_listener(application: Application):
                     payload = message.payload.decode()
                     datos = json.loads(payload)
                     msg_text = (
-                        f"Datos de Telemetría:\n"
-                        f"Temperatura: {datos['temperatura']}°C | Humedad: {datos['humedad']}%\n"
-                        f"Modo: {datos['modo'].upper()} | Setpoint: {datos['setpoint']}°C"
+                        f"datos desde el micro:\n"
+                        f"temp: {datos['temperatura']}°C - hum: {datos['humedad']}%\n"
+                        f"modo: {datos['modo'].upper()} - setpoint: {datos['setpoint']}°C"
                     )
                     for chat_id in list(active_chats):
                         try:
                             await application.bot.send_message(chat_id=chat_id, text=msg_text)
                         except Exception as e:
-                            logging.error(f"Fallo de transmisión al chat {chat_id}: {e}")
+                            logging.error(f"fallo de transmision al chat {chat_id}: {e}")
         except Exception as e:
-            logging.error(f"Fallo en listener MQTT. Reiniciando ciclo: {e}")
+            logging.error(f"fallo en listener MQTT. Reiniciando ciclo: {e}")
             await asyncio.sleep(5)
 
 async def post_init(application: Application):
