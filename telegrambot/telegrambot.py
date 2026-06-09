@@ -13,8 +13,11 @@ MQTT_PASS = os.environ["MQTT_PASS"]
 logging.basicConfig(format='%(asctime)s - TelegramBot - %(levelname)s - %(message)s', level=logging.INFO)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
+active_chats = set()
+estado_rele = 1
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    active_chats.add(update.message.chat.id)
     logging.info("se conectó: " + str(update.message.from_user.id))
     nombre = update.message.from_user.first_name if update.message.from_user.first_name else ""
     apellido = update.message.from_user.last_name if update.message.from_user.last_name else ""
@@ -23,12 +26,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def acercade(update: Update, context):
     await context.bot.send_message(update.message.chat.id, text="Este bot fue creado para el curso de IoT FIO")
-
-async def automatico(update: Update, context):
-    await context.bot.send_message(update.message.chat.id, text="Modo automático activado. El sistema ajustará el setpoint y el periodo según las condiciones actuales.")
-
-async def manual(update: Update, context):  
-    await context.bot.send_message(update.message.chat.id, text="Modo manual activado. El sistema operará con los parámetros establecidos por el usuario.")
 
 async def enviar_comando_mqtt(topico, payload):
     tls_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
@@ -52,29 +49,66 @@ async def enviar_comando_mqtt(topico, payload):
         logging.error(f"Error de conexión o publicación MQTT: {e}")
         return False
 
+async def automatico(update: Update, context):
+    await enviar_comando_mqtt(f"{ID_DISPOSITIVO}/modo", "auto")
+    await context.bot.send_message(update.message.chat.id, text="Configuración: MODO AUTOMÁTICO emitido.")
+
+async def manual(update: Update, context):  
+    await enviar_comando_mqtt(f"{ID_DISPOSITIVO}/modo", "manual")
+    await context.bot.send_message(update.message.chat.id, text="Configuración: MODO MANUAL emitido.")
+
 async def destello(update: Update, context):
-    topico_destello = f"{ID_DISPOSITIVO}/destello"
-    exito = await enviar_comando_mqtt(topico_destello, "1")
-    
-    if exito:
-        await context.bot.send_message(update.message.chat.id, text="Comando DESTELLO transmitido por MQTT.")
-    else:
-        await context.bot.send_message(update.message.chat.id, text="Fallo de transmisión al broker MQTT.")
+    await enviar_comando_mqtt(f"{ID_DISPOSITIVO}/destello", "1")
+    await context.bot.send_message(update.message.chat.id, text="Comando: DESTELLO emitido.")
 
 async def rele(update: Update, context):
-    topico_rele = f"{ID_DISPOSITIVO}/rele"
-    # El payload debe ser "0" (encendido) o "1" (apagado) para ser convertido a entero en la placa.
-    exito = await enviar_comando_mqtt(topico_rele, "0")
+    global estado_rele
+    estado_rele = 0 if estado_rele == 1 else 1
+    await enviar_comando_mqtt(f"{ID_DISPOSITIVO}/rele", str(estado_rele))
+    estado_texto = "ENCENDIDO" if estado_rele == 0 else "APAGADO"
+    await context.bot.send_message(update.message.chat.id, text=f"Comando: RELÉ {estado_texto} emitido.")
+
+async def mqtt_listener(application: Application):
+    tls_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    tls_context.verify_mode = ssl.CERT_REQUIRED
+    tls_context.check_hostname = True
+    tls_context.load_default_certs()
     
-    if exito:
-        await context.bot.send_message(update.message.chat.id, text="Comando RELE transmitido por MQTT.")
-    else:
-        await context.bot.send_message(update.message.chat.id, text="Fallo de transmisión al broker MQTT.")
+    while True:
+        try:
+            async with aiomqtt.Client(
+                hostname=MQTT_BROKER,
+                port=MQTT_PORT,
+                username=MQTT_USER,
+                password=MQTT_PASS,
+                tls_context=tls_context
+            ) as client:
+                await client.subscribe(ID_DISPOSITIVO)
+                async for message in client.messages:
+                    payload = message.payload.decode()
+                    datos = json.loads(payload)
+                    msg_text = (
+                        f"Datos de Telemetría:\n"
+                        f"Temperatura: {datos['temperatura']}°C | Humedad: {datos['humedad']}%\n"
+                        f"Modo: {datos['modo'].upper()} | Setpoint: {datos['setpoint']}°C"
+                    )
+                    for chat_id in list(active_chats):
+                        try:
+                            await application.bot.send_message(chat_id=chat_id, text=msg_text)
+                        except Exception as e:
+                            logging.error(f"Fallo de transmisión al chat {chat_id}: {e}")
+        except Exception as e:
+            logging.error(f"Fallo en listener MQTT. Reiniciando ciclo: {e}")
+            await asyncio.sleep(5)
+
+async def post_init(application: Application):
+    asyncio.create_task(mqtt_listener(application))
 
 def main():
     application = (
         Application.builder()
         .token(token)
+        .post_init(post_init)
         .connect_timeout(30.0)
         .read_timeout(30.0)
         .write_timeout(30.0)
@@ -82,7 +116,6 @@ def main():
         .build()
     )
     application.add_handler(CommandHandler('start', start))
-    application.add_handler(CommandHandler('acercade', acercade))
     application.add_handler(MessageHandler(filters.Regex(re.compile("^(MODO AUTOMATICO|AUTO|AUTOMATICO)$", re.IGNORECASE)), automatico))
     application.add_handler(MessageHandler(filters.Regex(re.compile("^(MODO MANUAL|MANUAL)$", re.IGNORECASE)), manual))
     application.add_handler(MessageHandler(filters.Regex(re.compile("^(DESTELLO)$", re.IGNORECASE)), destello))
