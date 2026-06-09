@@ -16,12 +16,24 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 active_chats = set()
 estado_rele = 1
 
+# Estructura para gestión de estados de la interfaz
+estado_sistema = {
+    "modo": "auto",
+    "esperando_input": None
+}
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     active_chats.add(update.message.chat.id)
     logging.info("se conectó: " + str(update.message.from_user.id))
     nombre = update.message.from_user.first_name if update.message.from_user.first_name else ""
     apellido = update.message.from_user.last_name if update.message.from_user.last_name else ""
-    kb = [["MODO AUTOMATICO"], ["MODO MANUAL"], ["DESTELLO"], ["RELE"]]
+    
+    kb = [
+        ["MODO AUTOMATICO", "MODO MANUAL"],
+        ["SETPOINT", "PERIODO"],
+        ["RELE", "DESTELLO"]
+    ]
+    
     await context.bot.send_message(update.message.chat.id, text="Bienvenido al Bot " + nombre + " " + apellido, reply_markup=ReplyKeyboardMarkup(kb))
 
 async def acercade(update: Update, context):
@@ -30,7 +42,7 @@ async def acercade(update: Update, context):
 async def enviar_comando_mqtt(topico, payload):
     tls_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     tls_context.verify_mode = ssl.CERT_REQUIRED
-    tls_context.check_hostname = True
+    tls_context.check_hostname = False
     tls_context.load_default_certs()
     
     try:
@@ -50,28 +62,75 @@ async def enviar_comando_mqtt(topico, payload):
         return False
 
 async def automatico(update: Update, context):
+    estado_sistema["modo"] = "auto"
+    estado_sistema["esperando_input"] = None
     await enviar_comando_mqtt(f"{ID_DISPOSITIVO}/modo", "auto")
-    await context.bot.send_message(update.message.chat.id, text="Configuración: MODO AUTOMÁTICO emitido.")
+    await context.bot.send_message(update.message.chat.id, text="config: MODO AUTOMATICO emitido.")
 
 async def manual(update: Update, context):  
+    estado_sistema["modo"] = "manual"
+    estado_sistema["esperando_input"] = None
     await enviar_comando_mqtt(f"{ID_DISPOSITIVO}/modo", "manual")
-    await context.bot.send_message(update.message.chat.id, text="Configuración: MODO MANUAL emitido.")
+    await context.bot.send_message(update.message.chat.id, text="config: MODO MANUAL emitido. (habilitados SETPOINT, PERIODO y RELE)")
 
 async def destello(update: Update, context):
     await enviar_comando_mqtt(f"{ID_DISPOSITIVO}/destello", "1")
-    await context.bot.send_message(update.message.chat.id, text="Comando: DESTELLO emitido.")
+    await context.bot.send_message(update.message.chat.id, text="comando: DESTELLO emitido.")
 
 async def rele(update: Update, context):
+    if estado_sistema["modo"] != "manual":
+        await context.bot.send_message(update.message.chat.id, text="NO ES POSIBLE. El sistema opera en MODO AUTOMATICO.")
+        return
+
     global estado_rele
     estado_rele = 0 if estado_rele == 1 else 1
     await enviar_comando_mqtt(f"{ID_DISPOSITIVO}/rele", str(estado_rele))
     estado_texto = "ENCENDIDO" if estado_rele == 0 else "APAGADO"
-    await context.bot.send_message(update.message.chat.id, text=f"Comando: RELÉ {estado_texto} emitido.")
+    await context.bot.send_message(update.message.chat.id, text=f"comando: RELE {estado_texto} emitido.")
+
+async def pedir_setpoint(update: Update, context):
+    if estado_sistema["modo"] != "manual":
+        await context.bot.send_message(update.message.chat.id, text="NO ES POSIBLE. El sistema opera en MODO AUTOMATICO.")
+        return
+
+    estado_sistema["esperando_input"] = "setpoint"
+    await context.bot.send_message(update.message.chat.id, text="Ingrese el valor de temperatura para el SETPOINT (formato numérico):")
+
+async def pedir_periodo(update: Update, context):
+    if estado_sistema["modo"] != "manual":
+        await context.bot.send_message(update.message.chat.id, text="NO ES POSIBLE. El sistema opera en MODO AUTOMATICO.")
+        return
+
+    estado_sistema["esperando_input"] = "periodo"
+    await context.bot.send_message(update.message.chat.id, text="Ingrese el valor en segundos para el PERIODO (formato numérico):")
+
+async def procesar_entrada_texto(update: Update, context):
+    esperando = estado_sistema["esperando_input"]
+    if not esperando:
+        return
+
+    texto = update.message.text.strip()
+    
+    try:
+        if esperando == "setpoint":
+            valor = float(texto)
+            await enviar_comando_mqtt(f"{ID_DISPOSITIVO}/setpoint", str(valor))
+            await context.bot.send_message(update.message.chat.id, text=f"parametro actualizado: SETPOINT = {valor}°C")
+            
+        elif esperando == "periodo":
+            valor = int(texto)
+            await enviar_comando_mqtt(f"{ID_DISPOSITIVO}/periodo", str(valor))
+            await context.bot.send_message(update.message.chat.id, text=f"parametro actualizado: PERIODO = {valor} segundos")
+        
+        estado_sistema["esperando_input"] = None
+        
+    except ValueError:
+        await context.bot.send_message(update.message.chat.id, text="Error de formato. Ingrese un valor numérico válido.")
 
 async def mqtt_listener(application: Application):
     tls_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     tls_context.verify_mode = ssl.CERT_REQUIRED
-    tls_context.check_hostname = True
+    tls_context.check_hostname = False
     tls_context.load_default_certs()
     
     while True:
@@ -115,11 +174,19 @@ def main():
         .pool_timeout(30.0)
         .build()
     )
+    
     application.add_handler(CommandHandler('start', start))
+    application.add_handler(CommandHandler('acercade', acercade))
     application.add_handler(MessageHandler(filters.Regex(re.compile("^(MODO AUTOMATICO|AUTO|AUTOMATICO)$", re.IGNORECASE)), automatico))
     application.add_handler(MessageHandler(filters.Regex(re.compile("^(MODO MANUAL|MANUAL)$", re.IGNORECASE)), manual))
     application.add_handler(MessageHandler(filters.Regex(re.compile("^(DESTELLO)$", re.IGNORECASE)), destello))
     application.add_handler(MessageHandler(filters.Regex(re.compile("^(RELE)$", re.IGNORECASE)), rele))
+    application.add_handler(MessageHandler(filters.Regex(re.compile("^(SETPOINT)$", re.IGNORECASE)), pedir_setpoint))
+    application.add_handler(MessageHandler(filters.Regex(re.compile("^(PERIODO)$", re.IGNORECASE)), pedir_periodo))
+    
+    # Manejador genérico de texto para procesar los ingresos numéricos (debe registrarse al final)
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, procesar_entrada_texto))
+    
     application.run_polling()
 
 if __name__ == '__main__':
