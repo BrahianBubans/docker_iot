@@ -12,21 +12,21 @@ if(btnDelete) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-    // Seleccionar todos los botones de cambio de tema
     const themeSwitches = document.querySelectorAll('.theme-switch');
 
     themeSwitches.forEach(button => {
         button.addEventListener('click', (event) => {
             event.preventDefault(); 
             
-            // Obtener el tema seleccionado (light o dark)
             const selectedTheme = button.getAttribute('data-bs-theme');
+            const userId = button.getAttribute('data-user');
             
-            // Aplicar el tema al documento HTML
             document.documentElement.setAttribute('data-bs-theme', selectedTheme);
             
-            // Guardar preferencia en localStorage
-            localStorage.setItem('theme', selectedTheme);
+            // Guarda la selección usando un prefijo único por usuario
+            if (userId) {
+                localStorage.setItem(`theme_${userId}`, selectedTheme);
+            }
         });
     });
 });
