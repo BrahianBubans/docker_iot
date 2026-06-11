@@ -22,7 +22,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const userId = button.getAttribute('data-user');
             
             document.documentElement.setAttribute('data-bs-theme', selectedTheme);
-            
+      
             // Guarda la selección usando un prefijo único por usuario
             if (userId) {
                 localStorage.setItem(`theme_${userId}`, selectedTheme);

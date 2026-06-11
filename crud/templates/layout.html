@@ -9,10 +9,10 @@
   
   <script>
     {% if session.get("user_id") %}
-      // Carga el tema específico de este usuario o aplica 'light' por defecto
+      // Carga el tema guardado o  por defecto claro
       const theme = localStorage.getItem('theme_{{ session.get("user_id") }}') || 'light';
     {% else %}
-      // Fuerza modo claro fuera de la sesión
+      // fuera de la sesion siempre claro
       const theme = 'light';
     {% endif %}
     document.documentElement.setAttribute('data-bs-theme', theme);
