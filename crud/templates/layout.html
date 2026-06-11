@@ -3,12 +3,21 @@
 <head>
   <meta charset="UTF-8" />
   <title>FLASK CRUD 1.6</title>
+  <!-- <link rel="stylesheet" href="https://bootswatch.com/5/cosmo/bootstrap.min.css"> -->
   <link rel="stylesheet" href="https://bootswatch.com/5/brite/bootstrap.min.css">
   
   <script>
+  {% if session.get("user_id") %}
+    // Si hay usuario, respetar su preferencia guardada
     const theme = localStorage.getItem('theme') || 'light';
-    document.documentElement.setAttribute('data-bs-theme', theme);
-  </script>
+  {% else %}
+    // Si no hay usuario (registro/login/logout), forzar tema claro
+    const theme = 'light';
+    localStorage.setItem('theme', 'light');
+  {% endif %}
+  
+  document.documentElement.setAttribute('data-bs-theme', theme);
+</script>
 </head>
 
 <body>
@@ -23,24 +32,24 @@
     {% endif %} 
   {% endwith %}
 
-  <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
-    <div class="container-fluid">
-      <a class="navbar-brand" href="#">CRUD</a>
-      {% if session.get("user_id") %}
-      <div class="d-flex">
-        <div class="nav-item pe-3 pt-2">{{ session.get("user_id") }}</div>
-        <li class="nav-item dropdown" style="list-style: none;">
-          <a class="nav-link dropdown-toggle" data-bs-toggle="dropdown" href="#" role="button" aria-haspopup="true" aria-expanded="false">TEMA</a>
-          <div class="dropdown-menu" data-bs-popper="static">
-            <a class="dropdown-item theme-switch" href="#" data-bs-theme="light">CLARO</a>
-            <a class="dropdown-item theme-switch" href="#" data-bs-theme="dark">OSCURO</a>
-          </div>
-        </li>
-        <a href="{{url_for('logout')}}" class="btn btn-secondary my-2 my-sm-0" type="submit">Salir</a>
-      </div>
-      {% endif %}
+ <nav class="navbar navbar-expand-lg bg-primary">
+  <div class="container-fluid">
+    <a class="navbar-brand text-white" href="#">CRUD</a>
+    {% if session.get("user_id") %}
+    <div class="d-flex">
+      <div class="nav-item pe-3 pt-2 text-white">{{ session.get("user_id") }}</div>
+      <li class="nav-item dropdown" style="list-style: none;">
+        <a class="nav-link dropdown-toggle text-white" data-bs-toggle="dropdown" href="#" role="button" aria-haspopup="true" aria-expanded="false">TEMA</a>
+        <div class="dropdown-menu" data-bs-popper="static">
+          <a class="dropdown-item theme-switch" href="#" data-bs-theme="light">CLARO</a>
+          <a class="dropdown-item theme-switch" href="#" data-bs-theme="dark">OSCURO</a>
+        </div>
+      </li>
+      <a href="{{url_for('logout')}}" class="btn btn-secondary my-2 my-sm-0" type="submit">Salir</a>
     </div>
-  </nav>
+    {% endif %}
+  </div>
+</nav>
 
   <div class="container pt-4">
     {% block body %}

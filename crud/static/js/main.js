@@ -10,6 +10,7 @@ if(btnDelete) {
     });
   })
 }
+
 document.addEventListener('DOMContentLoaded', () => {
     // Seleccionar todos los botones de cambio de tema
     const themeSwitches = document.querySelectorAll('.theme-switch');
