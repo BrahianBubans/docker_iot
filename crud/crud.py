@@ -4,6 +4,14 @@ import os, logging
 from functools import wraps
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
+import paho.mqtt.client as mqtt
+import ssl
+
+# Configuración MQTTS
+MQTT_BROKER = os.environ.get("SERVIDOR")
+MQTT_PORT = int(os.environ.get("PUERTO_MQTTS", 8883))
+MQTT_USER = os.environ.get("MQTT_USR")
+MQTT_PASS = os.environ.get("MQTT_PASS")
 
 logging.basicConfig(format='%(asctime)s - CRUD - %(levelname)s - %(message)s', level=logging.INFO)
 
@@ -21,8 +29,6 @@ app.config["MYSQL_HOST"] = os.environ["MYSQL_HOST"]
 app.config['PERMANENT_SESSION_LIFETIME']=180
 mysql = MySQL(app)
 
-# rutas
-
 def require_login(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
@@ -33,14 +39,9 @@ def require_login(f):
 
 @app.route("/registrar", methods=["GET", "POST"])
 def registrar():
-    """Registrar usuario"""
     if request.method == "POST":
-
-        # Ensure username was submitted
         if not request.form.get("usuario"):
             return "el campo usuario es oblicatorio"
-
-        # Ensure password was submitted
         elif not request.form.get("password"):
             return "el campo contraseña es oblicatorio"
 
@@ -48,7 +49,7 @@ def registrar():
         cur = mysql.connection.cursor()
         cur.execute("INSERT INTO usuarios (usuario, hash) VALUES (%s,%s)", (request.form.get("usuario"), passhash[17:]))
         if mysql.connection.affected_rows():
-            flash('Se agregó un usuario')  # usa sesión
+            flash('Se agregó un usuario')
             logging.info("se agregó un usuario")
         mysql.connection.commit()
         return redirect(url_for('index'))
@@ -58,10 +59,8 @@ def registrar():
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
-        # Ensure username was submitted
         if not request.form.get("usuario"):
             return "el campo usuario es oblicatorio"
-        # Ensure password was submitted
         elif not request.form.get("password"):
             return "el campo contraseña es oblicatorio"
 
@@ -83,60 +82,96 @@ def login():
 @require_login
 def index():
     cur = mysql.connection.cursor()
-    cur.execute('SELECT * FROM contactos')
+    cur.execute('SELECT * FROM dispositivos_pico')
     datos = cur.fetchall()
     cur.close()
-    return render_template('index.html', contactos = datos)
+    return render_template('index.html', dispositivos = datos)
 
-@app.route('/add_contact', methods=['POST'])
+@app.route('/add_dispositivo', methods=['POST'])
 @require_login
-def add_contact():
+def add_dispositivo():
     if request.method == 'POST':
+        id_dispositivo = request.form['id_dispositivo']
         nombre = request.form['nombre']
-        tel = request.form['tel']
-        email = request.form['email']
         cur = mysql.connection.cursor()
-        cur.execute("INSERT INTO contactos (nombre, tel, email) VALUES (%s,%s,%s)"
-                    , (nombre, tel, email))
+        cur.execute("INSERT INTO dispositivos_pico (ID_dispositivo, nombre) VALUES (%s,%s)", (id_dispositivo, nombre))
         if mysql.connection.affected_rows():
-            flash('Se agregó un contacto')  # usa sesión
-            logging.info("se agregó un contacto")
+            flash('Se agregó un dispositivo')
+            logging.info("se agregó un dispositivo")
             mysql.connection.commit()
     return redirect(url_for('index'))
 
 @app.route('/borrar/<string:id>', methods = ['GET'])
 @require_login
-def borrar_contacto(id):
+def borrar_dispositivo(id):
     cur = mysql.connection.cursor()
-    cur.execute('DELETE FROM contactos WHERE id = %s', (id,))
+    cur.execute('DELETE FROM dispositivos_pico WHERE ID_dispositivo = %s', (id,))
     if mysql.connection.affected_rows():
-        flash('Se eliminó un contacto')  # usa sesión
-        logging.info("se eliminó un contacto")
+        flash('Se eliminó un dispositivo')
+        logging.info("se eliminó un dispositivo")
         mysql.connection.commit()
     return redirect(url_for('index'))
 
-@app.route('/editar/<id>', methods = ['GET'])
+@app.route('/editar/<string:id>', methods = ['GET'])
 @require_login
-def conseguir_contacto(id):
+def conseguir_dispositivo(id):
     cur = mysql.connection.cursor()
-    cur.execute('SELECT * FROM contactos WHERE id = %s', (id,))
+    cur.execute('SELECT * FROM dispositivos_pico WHERE ID_dispositivo = %s', (id,))
     datos = cur.fetchone()
     logging.info(datos)
-    return render_template('editar-contacto.html', contacto = datos)
+    return render_template('editar-dispositivo.html', dispositivo = datos)
 
-@app.route('/actualizar/<id>', methods=['POST'])
+@app.route('/actualizar/<string:id>', methods=['POST'])
 @require_login
-def actualizar_contacto(id):
+def actualizar_dispositivo(id):
     if request.method == 'POST':
         nombre = request.form['nombre']
-        tel = request.form['tel']
-        email = request.form['email']
+        descripcion = request.form['descripcion']
+        setpoint = request.form['setpoint']
         cur = mysql.connection.cursor()
-        cur.execute("UPDATE contactos SET nombre=%s, tel=%s, email=%s WHERE id=%s", (nombre, tel, email, id))
-    if mysql.connection.affected_rows():
-        flash('Se actualizó un contacto')  # usa sesión
-        logging.info("se actualizó un contacto")
-        mysql.connection.commit()
+        cur.execute("UPDATE dispositivos_pico SET nombre=%s, descripcion=%s, setpoint=%s WHERE ID_dispositivo=%s", (nombre, descripcion, setpoint, id))
+        if mysql.connection.affected_rows():
+            flash('Se actualizó un dispositivo')
+            logging.info("se actualizó un dispositivo")
+            mysql.connection.commit()
+    return redirect(url_for('index'))
+
+@app.route('/enviar_comando', methods=['POST'])
+@require_login
+def enviar_comando():
+    nodo_id = request.form.get('nodo_destinatario')
+    accion = request.form.get('accion')
+
+    if not nodo_id:
+        flash('Seleccione un nodo destinatario')
+        return redirect(url_for('index'))
+
+    try:
+        client = obtener_cliente_mqtt()
+    except Exception as e:
+        flash(f'Error de conexión MQTT: {str(e)}')
+        return redirect(url_for('index'))
+
+    if accion == 'destello':
+        topico = f"nodo/{nodo_id}/comando"
+        client.publish(topico, "destello")
+        flash(f'Comando de destello enviado al nodo {nodo_id}')
+        logging.info(f"Destello enviado a {nodo_id}")
+
+    elif accion == 'setpoint':
+        nuevo_setpoint = request.form.get('nuevo_setpoint')
+        if nuevo_setpoint:
+            topico = f"nodo/{nodo_id}/setpoint"
+            client.publish(topico, str(nuevo_setpoint))
+            
+            cur = mysql.connection.cursor()
+            cur.execute("UPDATE dispositivos_pico SET setpoint=%s WHERE ID_dispositivo=%s", (nuevo_setpoint, nodo_id))
+            mysql.connection.commit()
+            
+            flash(f'Setpoint actualizado a {nuevo_setpoint} para el nodo {nodo_id}')
+            logging.info(f"Setpoint {nuevo_setpoint} enviado a {nodo_id}")
+
+    client.disconnect()
     return redirect(url_for('index'))
 
 @app.route("/logout")

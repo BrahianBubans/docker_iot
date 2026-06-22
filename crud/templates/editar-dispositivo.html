@@ -1,0 +1,10 @@
+{% extends "layout.html" %} {% block body %}
+
+<form action="{{url_for('actualizar_dispositivo', id=dispositivo.0)}}" method="POST">
+  <input type="text" name="nuevo_id" value="{{dispositivo.0}}" required />
+  <input type="text" name="nombre" value="{{dispositivo.1}}" required />
+  <input type="number" step="0.1" name="setpoint" value="{{dispositivo.2}}" required />
+  <button type="submit">Actualizar</button>
+</form>
+
+{% endblock %}
