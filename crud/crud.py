@@ -125,14 +125,14 @@ def conseguir_dispositivo(id):
 @require_login
 def actualizar_dispositivo(id):
     if request.method == 'POST':
+        nuevo_id = request.form['nuevo_id']
         nombre = request.form['nombre']
-        descripcion = request.form['descripcion']
         setpoint = request.form['setpoint']
         cur = mysql.connection.cursor()
-        cur.execute("UPDATE dispositivos_pico SET nombre=%s, descripcion=%s, setpoint=%s WHERE ID_dispositivo=%s", (nombre, descripcion, setpoint, id))
+        cur.execute("UPDATE dispositivos_pico SET ID_dispositivo=%s, nombre=%s, setpoint=%s WHERE ID_dispositivo=%s", (nuevo_id, nombre, setpoint, id))
         if mysql.connection.affected_rows():
-            flash('Se actualizó un dispositivo')
-            logging.info("se actualizó un dispositivo")
+            flash('Se actualizo un dispositivo')
+            logging.info("se actualizo un dispositivo")
             mysql.connection.commit()
     return redirect(url_for('index'))
 
@@ -153,23 +153,23 @@ def enviar_comando():
         return redirect(url_for('index'))
 
     if accion == 'destello':
-        topico = f"nodo/{nodo_id}/comando"
-        client.publish(topico, "destello")
+        topico = f"{nodo_id}/destello/1"
+        client.publish(topico, "")
         flash(f'Comando de destello enviado al nodo {nodo_id}')
         logging.info(f"Destello enviado a {nodo_id}")
 
     elif accion == 'setpoint':
         nuevo_setpoint = request.form.get('nuevo_setpoint')
         if nuevo_setpoint:
-            topico = f"nodo/{nodo_id}/setpoint"
+            topico = f"{nodo_id}/setpoint"
             client.publish(topico, str(nuevo_setpoint))
             
             cur = mysql.connection.cursor()
             cur.execute("UPDATE dispositivos_pico SET setpoint=%s WHERE ID_dispositivo=%s", (nuevo_setpoint, nodo_id))
             mysql.connection.commit()
             
-            flash(f'Setpoint actualizado a {nuevo_setpoint} para el nodo {nodo_id}')
-            logging.info(f"Setpoint {nuevo_setpoint} enviado a {nodo_id}")
+            flash(f'setpoint actualizado a {nuevo_setpoint} para el nodo {nodo_id}')
+            logging.info(f"setpoint {nuevo_setpoint} enviado a {nodo_id}")
 
     client.disconnect()
     return redirect(url_for('index'))
