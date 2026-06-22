@@ -13,6 +13,24 @@ MQTT_PORT = int(os.environ.get("PUERTO_MQTTS", 8883))
 MQTT_USER = os.environ.get("MQTT_USR")
 MQTT_PASS = os.environ.get("MQTT_PASS")
 
+def obtener_cliente_mqtt():
+    if not MQTT_BROKER:
+        raise ValueError("Variable SERVIDOR nula. El contenedor no está leyendo el archivo .env.")
+        
+    client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+    if MQTT_USER and MQTT_PASS:
+        client.username_pw_set(MQTT_USER, MQTT_PASS)
+    
+    client.tls_set(cert_reqs=ssl.CERT_NONE, tls_version=ssl.PROTOCOL_TLS)
+    client.tls_insecure_set(True)
+    
+    try:
+        client.connect(MQTT_BROKER, MQTT_PORT, 60)
+        client.loop_start()
+        return client
+    except Exception as e:
+        logging.error(f"Fallo crítico en conexión MQTTS: {str(e)}")
+        raise
 logging.basicConfig(format='%(asctime)s - CRUD - %(levelname)s - %(message)s', level=logging.INFO)
 
 app = Flask(__name__)
@@ -131,8 +149,8 @@ def actualizar_dispositivo(id):
         cur = mysql.connection.cursor()
         cur.execute("UPDATE dispositivos_pico SET ID_dispositivo=%s, nombre=%s, setpoint=%s WHERE ID_dispositivo=%s", (nuevo_id, nombre, setpoint, id))
         if mysql.connection.affected_rows():
-            flash('Se actualizo un dispositivo')
-            logging.info("se actualizo un dispositivo")
+            flash('Se actualizó un dispositivo')
+            logging.info("se actualizó un dispositivo")
             mysql.connection.commit()
     return redirect(url_for('index'))
 
@@ -149,29 +167,37 @@ def enviar_comando():
     try:
         client = obtener_cliente_mqtt()
     except Exception as e:
-        flash(f'Error de conexión MQTT: {str(e)}')
+        flash('Error de conexión con el Broker MQTT.')
         return redirect(url_for('index'))
 
-    if accion == 'destello':
-        topico = f"{nodo_id}/destello/1"
-        client.publish(topico, "")
-        flash(f'Comando de destello enviado al nodo {nodo_id}')
-        logging.info(f"Destello enviado a {nodo_id}")
+    try:
+        if accion == 'destello':
+            topico = f"{nodo_id}/destello"
+            info = client.publish(topico, "1", qos=1)
+            info.wait_for_publish(timeout=5.0)
+            flash(f'Comando de destello enviado al nodo {nodo_id}')
+            logging.info(f"Destello publicado en tópico: {topico}")
 
-    elif accion == 'setpoint':
-        nuevo_setpoint = request.form.get('nuevo_setpoint')
-        if nuevo_setpoint:
-            topico = f"{nodo_id}/setpoint"
-            client.publish(topico, str(nuevo_setpoint))
-            
-            cur = mysql.connection.cursor()
-            cur.execute("UPDATE dispositivos_pico SET setpoint=%s WHERE ID_dispositivo=%s", (nuevo_setpoint, nodo_id))
-            mysql.connection.commit()
-            
-            flash(f'setpoint actualizado a {nuevo_setpoint} para el nodo {nodo_id}')
-            logging.info(f"setpoint {nuevo_setpoint} enviado a {nodo_id}")
+        elif accion == 'setpoint':
+            nuevo_setpoint = request.form.get('nuevo_setpoint')
+            if nuevo_setpoint:
+                topico = f"{nodo_id}/setpoint"
+                info = client.publish(topico, str(nuevo_setpoint), qos=1)
+                info.wait_for_publish(timeout=5.0)
+                
+                cur = mysql.connection.cursor()
+                cur.execute("UPDATE dispositivos_pico SET setpoint=%s WHERE ID_dispositivo=%s", (nuevo_setpoint, nodo_id))
+                mysql.connection.commit()
+                flash(f'Setpoint actualizado a {nuevo_setpoint} para el nodo {nodo_id}')
+                logging.info(f"Setpoint publicado en tópico: {topico}")
+                
+    except Exception as e:
+        logging.error(f"Error en la publicación MQTT: {str(e)}")
+        flash('Error al transmitir el comando al Broker.')
+    finally:
+        client.loop_stop()
+        client.disconnect()
 
-    client.disconnect()
     return redirect(url_for('index'))
 
 @app.route("/logout")
