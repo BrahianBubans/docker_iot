@@ -155,7 +155,7 @@ services:
       - INFLUX_SERVER=${INFLUX_SERVER}
       - INFLUX_TOKEN=${INFLUX_TOKEN}
       - TELEGRAM_CHATID=${TELEGRAM_CHATID}
-      - TB_TOKEN=${TB_TOKEN}
+      - TB_TOKEN=${TB_TOKEN2}
     volumes:
       - ./node-red:/data
     restart: unless-stopped
